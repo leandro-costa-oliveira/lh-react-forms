@@ -1,4 +1,3 @@
-````markdown
 # lh-forms
 
 A small form hook library inspired by `react-hook-form`, but using a controlled-components approach by default.
@@ -207,4 +206,3 @@ type RegisterOptions<TValue> = {
 ## License
 
 ISC
-````
