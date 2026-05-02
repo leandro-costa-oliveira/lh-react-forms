@@ -164,188 +164,147 @@ export function ProfilePage() {
 }
 ```
 
-## Complex example — array fields (MaterialSelector)
+## Complex example — AnexosInput
 
-Below is a real-world example of a controlled component that manages an array of selected items. The component receives a `value` (array or empty string), `onChange` and `onBlur` props from `register` and updates the parent form using the provided `onChange` callback.
+Below is a real-world example of a controlled component (`AnexosInput`) that receives `value`, `onChange` and other form props and manages file attachments (base64 content).
 
 ```tsx
-// MaterialSelector.tsx
-import { useMemo, useState } from "react";
-import { Button, Form, Table } from "react-bootstrap";
+import { useMemo, useRef, useState } from "react";
+import { Button, Form, ListGroup, Spinner } from "react-bootstrap";
+
 import { FaTrash } from "react-icons/fa";
+import type { AdicionarObservacaoAnexo } from "../api/useAdicionarObservacao";
+import { useTiposAnexosOs } from "../api/useTiposAnexosOs";
 
-export type MaterialOption = {
-  id: string;
-  nome: string;
-  saldo?: number;
-};
+export default function AnexosInput({ disabled, value, onChange, errorFeedback, isInvalid }: Props) {
+  const { data: tiposAnexos, isLoading: loadingTipos } = useTiposAnexosOs();
+  const [tipoSelecionado, setTipoSelecionado] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-export type SelectedMaterial = {
-  id: string;
-  nome: string;
-  quantidade: number;
-};
+  const anexos = useMemo(() => {
+    return typeof value === "string" ? [] : value || [];
+  }, [value]);
 
-type Props = {
-  title: string;
-  options: MaterialOption[];
-  value?: SelectedMaterial[] | "";
-  disabled?: boolean;
-  onChange?: (value: SelectedMaterial[]) => void;
-  onBlur?: React.FocusEventHandler<HTMLSelectElement | HTMLInputElement>;
-  emptyMessage?: string;
-};
+  async function handleSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    if (!selected.length) return;
 
-export default function MaterialSelector({
-  title,
-  options,
-  value,
-  disabled,
-  onChange,
-  onBlur,
-  emptyMessage = "Nenhum material adicionado.",
-}: Props) {
-  const [selectedId, setSelectedId] = useState("");
-  const selectedItems = useMemo(() => (Array.isArray(value) ? value : []), [value]);
+    const converted = await Promise.all(
+      selected.map(async (file) => ({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        content: await fileToBase64(file),
+        TipoAnexoOsId: tipoSelecionado,
+      })),
+    );
 
-  const availableOptions = useMemo(() => {
-    const selectedIds = new Set(selectedItems.map((item) => item.id));
-    return options.filter((item) => !selectedIds.has(item.id));
-  }, [options, selectedItems]);
-
-  function handleSelectChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    const id = event.target.value;
-    setSelectedId(id);
-
-    const item = availableOptions.find((option) => option.id === id) ?? null;
-
-    if (!item) return;
-
-    onChange?.([
-      ...selectedItems,
-      {
-        id: item.id,
-        nome: item.nome,
-        quantidade: 1,
-      },
-    ]);
-
-    setSelectedId("");
+    onChange?.([...anexos, ...converted]);
+    setTipoSelecionado("");
   }
 
-  function handleUpdateQuantidade(id: string, quantidade: number) {
-    onChange?.(selectedItems.map((item) => (item.id === id ? { ...item, quantidade } : item)));
+  function handleRemove(index: number) {
+    onChange?.(anexos.filter((_, i) => i !== index));
   }
 
-  function handleRemoveItem(id: string) {
-    onChange?.(selectedItems.filter((item) => item.id !== id));
-  }
+  const tipoLabel = (id: string) => tiposAnexos?.find((t) => t.id === id)?.tipo ?? id;
 
   return (
-    <div className="mt-4">
-      <Form.Label className="fw-semibold mb-2">{title}</Form.Label>
-
-      <div className="d-flex gap-2 flex-column flex-sm-row align-items-stretch align-items-sm-end">
-        <Form.Group className="flex-grow-1 mb-0">
-          <Form.Label className="small text-muted mb-1">Selecionar material</Form.Label>
+    <Form.Group controlId="anexos" className="mt-3">
+      <Form.Label className="fw-semibold mb-1">Anexos</Form.Label>
+      <Form.Label className="small text-muted mb-1">Tipo do anexo</Form.Label>
+      {loadingTipos ? (
+        <div className="d-flex align-items-center gap-2 mb-2">
+          <Spinner size="sm" />
+          <span className="small text-muted">Carregando tipos...</span>
+        </div>
+      ) : (
+        <>
           <Form.Select
-            value={selectedId}
-            onChange={handleSelectChange}
-            onBlur={onBlur}
-            disabled={disabled || availableOptions.length === 0}
+            value={tipoSelecionado}
+            onChange={(e) => {
+              setTipoSelecionado(e.target.value);
+              fileInputRef.current?.click();
+            }}
+            disabled={disabled}
+            size="sm"
+            className="mb-2"
           >
-            <option value="">Selecione...</option>
-            {availableOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.nome}
-                {typeof item.saldo === "number" ? ` (Saldo: ${item.saldo})` : ""}
+            <option value="">Selecione o tipo para adicionar arquivo</option>
+            {tiposAnexos?.map((tipo) => (
+              <option key={tipo.id} value={tipo.id}>
+                {tipo.tipo}
               </option>
             ))}
           </Form.Select>
-        </Form.Group>
-      </div>
 
-      <Table striped hover responsive className="mt-2 mb-0">
-        <thead>
-          <tr>
-            <th>Produto</th>
-            <th className="text-nowrap">Quantidade</th>
-            <th className="text-end">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {selectedItems.length === 0 ? (
-            <tr>
-              <td colSpan={4} className="text-center text-muted py-3">
-                {emptyMessage}
-              </td>
-            </tr>
-          ) : (
-            selectedItems.map((item) => (
-              <tr key={item.id}>
-                <td>{item.nome}</td>
-                <td>
-                  <Form.Control
-                    type="number"
-                    style={{ width: "80px" }}
-                    min={1}
-                    step={1}
-                    size="sm"
-                    value={item.quantidade}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      const quantidade = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-                      handleUpdateQuantidade(item.id, quantidade);
-                    }}
-                  />
-                </td>
-                <td className="text-end">
-                  <Button
-                    type="button"
-                    variant="outline-danger"
-                    size="sm"
-                    disabled={disabled}
-                    onClick={() => handleRemoveItem(item.id)}
-                    title="Remover"
-                    aria-label="Remover"
-                  >
-                    <FaTrash />
-                  </Button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </Table>
-    </div>
+          <div className="d-grid gap-1">
+            <Button
+              type="button"
+              variant="outline-primary"
+              disabled={disabled || !tipoSelecionado}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Abrir câmera
+            </Button>
+          </div>
+        </>
+      )}
+      <Form.Control
+        ref={fileInputRef}
+        type="file"
+        multiple
+        isInvalid={isInvalid}
+        onChange={handleSelect}
+        disabled={disabled}
+        accept="image/*"
+        capture="environment"
+        className="visually-hidden"
+      />
+      {anexos.length > 0 && (
+        <ListGroup className="mt-2">
+          {anexos.map((anexo, index) => (
+            <ListGroup.Item key={`${anexo.name}-${anexo.type}-${index}`} className="d-flex align-items-center gap-2">
+              <div className="flex-grow-1 text-truncate">
+                <span className="text-muted me-2 small">{tipoLabel(anexo.TipoAnexoOsId)}</span>
+                <span className="fw-semibold">{anexo.name}</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline-danger"
+                size="sm"
+                onClick={() => handleRemove(index)}
+                disabled={disabled}
+              >
+                <FaTrash />
+              </Button>
+            </ListGroup.Item>
+          ))}
+        </ListGroup>
+      )}
+      {errorFeedback && <Form.Control.Feedback type="invalid">{errorFeedback}</Form.Control.Feedback>}
+    </Form.Group>
   );
 }
-```
 
-Usage with `useForm`:
-
-```tsx
-type FormData = {
-  materialUtilizado: { id: string; nome: string; quantidade: number }[];
+type Props = Pick<React.ComponentProps<typeof Form.Control>, "onBlur" | "disabled"> & {
+  onChange?: (value: AdicionarObservacaoAnexo[]) => void;
+  value?: AdicionarObservacaoAnexo[] | "";
+  errorFeedback?: string;
+  isInvalid?: boolean;
 };
 
-const { register, handleSubmit } = useForm<FormData>({
-  initialData: { materialUtilizado: [] },
-});
-
-return (
-  <form onSubmit={handleSubmit(async (data) => console.log(data))}>
-    <MaterialSelector
-      title="Material Utilizado"
-      options={materialsInStock}
-      {...register("materialUtilizado")}
-      emptyMessage="Nenhum material utilizado adicionado."
-    />
-
-    <button type="submit">Submit</button>
-  </form>
-);
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const content = result.includes(",") ? result.split(",")[1] : result;
+      resolve(content);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 ```
 
 ## API summary
