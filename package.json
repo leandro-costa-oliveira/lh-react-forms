@@ -1,11 +1,12 @@
 {
   "name": "lh-react-forms",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "",
   "main": "src/useForm.js",
   "types": "src/useForm.d.ts",
   "scripts": {
-    "test": "echo No Tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build": "tsc && cp README.md dist/ && cp README.pt.md dist/"
   },
   "repository": {
@@ -19,7 +20,12 @@
     "react": "^19.2.5"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.0",
     "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^26.1.0",
+    "react-dom": "^19.2.0",
+    "vitest": "^3.2.4",
     "typescript": "^6.0.3"
   }
 }
