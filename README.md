@@ -1,9 +1,9 @@
 ````markdown
-# lh-forms
+# lh-react-forms
 
 A small form hook library inspired by `react-hook-form`, but using a controlled-components approach by default.
 
-Instead of relying on uncontrolled inputs and DOM refs, `lh-forms` keeps form state in React and returns ready-to-use props for controlled components.
+Instead of relying on uncontrolled inputs and DOM refs, `lh-react-forms` keeps form state in React and returns ready-to-use props for controlled components.
 
 ## Key features
 
@@ -16,7 +16,7 @@ Instead of relying on uncontrolled inputs and DOM refs, `lh-forms` keeps form st
 ## Installation
 
 ```bash
-npm install lh-forms
+npm install lh-react-forms
 ```
 
 If you use TypeScript with React:
@@ -29,7 +29,7 @@ npm install -D @types/react
 
 ```tsx
 import React from "react";
-import { useForm } from "lh-forms";
+import { useForm } from "lh-react-forms";
 
 type LoginForm = {
   email: string;
@@ -110,7 +110,7 @@ The `onChange` from `register` accepts either:
 
 ```tsx
 import React from "react";
-import { useForm } from "lh-forms";
+import { useForm } from "lh-react-forms";
 
 type ProfileForm = {
   name: string;
