@@ -306,6 +306,42 @@ function fileToBase64(file: File): Promise<string> {
 }
 ```
 
+### Usage
+
+Here's a minimal example showing how to register and use `AnexosInput` with `useForm`:
+
+```tsx
+import React from "react";
+import AnexosInput from "./AnexosInput"; // adjust path
+import { useForm } from "lh-react-forms";
+
+type FormData = { anexos: any[] | "" };
+
+export function ObservacoesPage() {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormData>({ initialData: { anexos: "" } });
+
+  return (
+    <form onSubmit={handleSubmit((data) => console.log(data))}>
+      <AnexosInput
+        {...register("anexos", {
+          validateOnChange: true,
+          required: "Selecione pelo menos um anexo.",
+          validate: (value) => (Array.isArray(value) && value.length > 0) || "Selecione pelo menos um anexo.",
+        })}
+        errorFeedback={errors.anexos?.message}
+        isInvalid={!!errors.anexos}
+      />
+
+      <button type="submit">Enviar</button>
+    </form>
+  );
+}
+```
+
 ## API summary
 
 ### `useForm<T>(options?)`
