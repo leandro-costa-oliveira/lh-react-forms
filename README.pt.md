@@ -206,12 +206,3 @@ export function ObservacoesPage() {
   );
 }
 ```
-
----
-
-Se quiser, posso também:
-
-- traduzir todo o `README.md` principal para pt-BR e manter ambos arquivos sincronizados, ou
-- manter apenas `README.md` em inglês e `README.pt.md` em português (atual configuração).
-
-Diga como prefere que eu prossiga.

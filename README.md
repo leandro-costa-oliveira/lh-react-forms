@@ -385,7 +385,3 @@ type RegisterOptions<TValue> = {
 ## License
 
 ISC
-
-```
-
-```
