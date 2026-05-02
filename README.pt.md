@@ -1,6 +1,6 @@
 # lh-react-forms (pt-BR)
 
-Uma pequena biblioteca de hooks de formulário inspirada em `react-hook-form`, porém usando componentes controlados por padrão.
+Uma pequena biblioteca de hooks de formulário inspirada em [react-hook-form](https://react-hook-form.com/), porém usando componentes controlados por padrão.
 
 Ao invés de depender de inputs não-controlados e refs no DOM, `lh-react-forms` mantém o estado do formulário no React e retorna props prontas para componentes controlados.
 

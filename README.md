@@ -1,6 +1,6 @@
 # lh-react-forms
 
-A small form hook library inspired by `react-hook-form`, but using a controlled-components approach by default.
+A small form hook library inspired by [react-hook-form](https://react-hook-form.com/), but using a controlled-components approach by default.
 
 Instead of relying on uncontrolled inputs and DOM refs, `lh-react-forms` keeps form state in React and returns ready-to-use props for controlled components.
 
