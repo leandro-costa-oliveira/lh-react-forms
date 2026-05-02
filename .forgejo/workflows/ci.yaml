@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - master
+      - main
       - development
   pull_request:
     branches:
@@ -12,7 +12,7 @@ jobs:
   build-and-test:
     runs-on: docker
     container:
-      image: node:20-alpine
+      image: node:24-alpine
     steps:
       - name: Git Clone
         uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
   publish:
     runs-on: docker
     container:
-      image: node:20-alpine
+      image: node:24-alpine
     needs: [build-and-test]
     steps:
       - name: Publish Npm Packages
