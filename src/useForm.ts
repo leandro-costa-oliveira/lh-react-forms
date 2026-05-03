@@ -133,13 +133,59 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     const rules = fieldsRef.current[field];
     const value = data ?? formData[field];
 
-    if (rules?.required && !value) {
-      setErrors((prevErrors) => ({ ...prevErrors, [field]: new Error(ERROR_MESSAGES.required) }));
+    const fail = (msg: string) => {
+      setErrors((prevErrors) => ({ ...prevErrors, [field]: new Error(msg) }));
+    };
+
+    if (rules?.required && !value && value !== 0 && value !== false) {
+      fail(resolveMessage(rules.required, ERROR_MESSAGES.required));
       return false;
-    } else if (rules?.validate) {
+    }
+
+    if (rules?.minLength !== undefined && typeof value === "string") {
+      const { value: min, message } = normalizeConstraint(rules.minLength);
+      if (value.length < min) {
+        fail(message ?? ERROR_MESSAGES.minLength(min));
+        return false;
+      }
+    }
+
+    if (rules?.maxLength !== undefined && typeof value === "string") {
+      const { value: max, message } = normalizeConstraint(rules.maxLength);
+      if (value.length > max) {
+        fail(message ?? ERROR_MESSAGES.maxLength(max));
+        return false;
+      }
+    }
+
+    if (rules?.min !== undefined && typeof value === "number") {
+      const { value: min, message } = normalizeConstraint(rules.min);
+      if (value < min) {
+        fail(message ?? ERROR_MESSAGES.min(min));
+        return false;
+      }
+    }
+
+    if (rules?.max !== undefined && typeof value === "number") {
+      const { value: max, message } = normalizeConstraint(rules.max);
+      if (value > max) {
+        fail(message ?? ERROR_MESSAGES.max(max));
+        return false;
+      }
+    }
+
+    if (rules?.pattern !== undefined && typeof value === "string") {
+      const { value: regex, message } = normalizePatternConstraint(rules.pattern);
+      if (!regex.test(value)) {
+        fail(message ?? ERROR_MESSAGES.pattern);
+        return false;
+      }
+    }
+
+    if (rules?.validate) {
       const validationResult = await rules.validate(value);
       if (validationResult !== true) {
-        setErrors((prevErrors) => ({ ...prevErrors, [field]: new Error(validationResult as string) }));
+        fail(validationResult as string);
         return false;
       }
     }
@@ -213,8 +259,15 @@ type FormError = {
   message: string;
 };
 
+type ValidationConstraint<TValue> = TValue | { value: TValue; message?: string };
+
 type REGISTER_OPTIONS<TValue> = {
   required?: boolean | string;
+  minLength?: ValidationConstraint<number>;
+  maxLength?: ValidationConstraint<number>;
+  min?: ValidationConstraint<number>;
+  max?: ValidationConstraint<number>;
+  pattern?: ValidationConstraint<RegExp>;
   validate?: (value: TValue) => boolean | string | Promise<boolean | string>;
   validateOnChange?: boolean;
 };
@@ -256,7 +309,30 @@ type RegisteredFieldProps<TValue> = TValue extends boolean
 
 const ERROR_MESSAGES = {
   required: "Este campo é obrigatório.",
+  minLength: (min: number) => `Mínimo de ${min} caracteres.`,
+  maxLength: (max: number) => `Máximo de ${max} caracteres.`,
+  min: (min: number) => `O valor deve ser no mínimo ${min}.`,
+  max: (max: number) => `O valor deve ser no máximo ${max}.`,
+  pattern: "Formato inválido.",
 };
+
+function resolveMessage(rule: boolean | string, fallback: string): string {
+  return typeof rule === "string" ? rule : fallback;
+}
+
+function normalizeConstraint<TValue>(constraint: ValidationConstraint<TValue>): { value: TValue; message?: string } {
+  if (constraint !== null && typeof constraint === "object" && "value" in (constraint as object)) {
+    return constraint as { value: TValue; message?: string };
+  }
+  return { value: constraint as TValue };
+}
+
+function normalizePatternConstraint(constraint: ValidationConstraint<RegExp>): { value: RegExp; message?: string } {
+  if (constraint instanceof RegExp) {
+    return { value: constraint };
+  }
+  return constraint as { value: RegExp; message?: string };
+}
 
 function normalizeFieldValue<TValue>(value: TValue): RegisterValue<TValue> {
   return (value ?? "") as RegisterValue<TValue>;

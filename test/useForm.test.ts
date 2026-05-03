@@ -239,4 +239,251 @@ describe("useForm", () => {
       expect(formApi.formState.errors.submitError?.message).toBe("Falha ao enviar");
     });
   });
+
+  describe("built-in validation rules", () => {
+    type ValidationForm = {
+      username: string;
+      password: string;
+      bio: string;
+      age: number;
+      score: number;
+      email: string;
+    };
+
+    let api: ReturnType<typeof useForm<ValidationForm>>;
+
+    function ValidationHarness() {
+      api = useForm<ValidationForm>({
+        initialData: { username: "", password: "", bio: "", age: 0, score: 0, email: "" },
+      });
+      return null;
+    }
+
+    function renderValidation() {
+      render(React.createElement(ValidationHarness));
+    }
+
+    it("minLength — rejects short value with default message", async () => {
+      renderValidation();
+      api.register("password", { minLength: 8 });
+
+      await act(async () => {
+        await api.setValue("password", "abc");
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password?.message).toBe("Mínimo de 8 caracteres.");
+      });
+    });
+
+    it("minLength — rejects short value with custom message", async () => {
+      renderValidation();
+      api.register("password", {
+        minLength: { value: 8, message: "A senha deve ter ao menos 8 caracteres." },
+      });
+
+      await act(async () => {
+        await api.setValue("password", "abc");
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password?.message).toBe("A senha deve ter ao menos 8 caracteres.");
+      });
+    });
+
+    it("minLength — passes when value is long enough", async () => {
+      renderValidation();
+      api.register("password", { minLength: 8 });
+
+      await act(async () => {
+        api.setValue("password", "strongpass");
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password).toBeUndefined();
+      });
+    });
+
+    it("maxLength — rejects long value with default message", async () => {
+      renderValidation();
+      api.register("bio", { maxLength: 10 });
+
+      await act(async () => {
+        api.setValue("bio", "This text is way too long");
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.bio?.message).toBe("Máximo de 10 caracteres.");
+      });
+    });
+
+    it("maxLength — passes when value is within limit", async () => {
+      renderValidation();
+      api.register("bio", { maxLength: 10 });
+
+      await act(async () => {
+        await api.setValue("bio", "short");
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.bio).toBeUndefined();
+      });
+    });
+
+    it("min — rejects value below minimum", async () => {
+      renderValidation();
+      api.register("age", { min: 18 });
+
+      await act(async () => {
+        await api.setValue("age", 16);
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.age?.message).toBe("O valor deve ser no mínimo 18.");
+      });
+    });
+
+    it("min — passes when value meets minimum", async () => {
+      renderValidation();
+      api.register("age", { min: 18 });
+
+      await act(async () => {
+        api.setValue("age", 18);
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.age).toBeUndefined();
+      });
+    });
+
+    it("max — rejects value above maximum", async () => {
+      renderValidation();
+      api.register("score", { max: { value: 100, message: "Pontuação não pode ultrapassar 100." } });
+
+      await act(async () => {
+        api.setValue("score", 150);
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.score?.message).toBe("Pontuação não pode ultrapassar 100.");
+      });
+    });
+
+    it("max — passes when value is within maximum", async () => {
+      renderValidation();
+      api.register("score", { max: 100 });
+
+      await act(async () => {
+        await api.setValue("score", 100);
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.score).toBeUndefined();
+      });
+    });
+
+    it("pattern — rejects value not matching regex", async () => {
+      renderValidation();
+      api.register("email", {
+        pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "E-mail inválido." },
+      });
+
+      await act(async () => {
+        await api.setValue("email", "not-an-email");
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.email?.message).toBe("E-mail inválido.");
+      });
+    });
+
+    it("pattern — passes when value matches regex", async () => {
+      renderValidation();
+      api.register("email", {
+        pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "E-mail inválido." },
+      });
+
+      await act(async () => {
+        api.setValue("email", "user@example.com");
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.email).toBeUndefined();
+      });
+    });
+
+    it("required with custom message shows that message", async () => {
+      renderValidation();
+      api.register("username", { required: "Nome de usuário é obrigatório." });
+
+      await act(async () => {
+        await api.setValue("username", "");
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.username?.message).toBe("Nome de usuário é obrigatório.");
+      });
+    });
+
+    it("rules are applied in order: required before minLength", async () => {
+      renderValidation();
+      api.register("password", {
+        required: "Informe sua senha.",
+        minLength: { value: 8, message: "A senha deve ter ao menos 8 caracteres." },
+      });
+
+      // initial value is already "", so no need to setValue first
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password?.message).toBe("Informe sua senha.");
+      });
+
+      await act(async () => {
+        api.setValue("password", "abc");
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password?.message).toBe("A senha deve ter ao menos 8 caracteres.");
+      });
+
+      await act(async () => {
+        api.setValue("password", "strongpassword");
+      });
+      await act(async () => {
+        await api.validateForm();
+      });
+
+      await waitFor(() => {
+        expect(api.formState.errors.password).toBeUndefined();
+      });
+    });
+  });
 });
