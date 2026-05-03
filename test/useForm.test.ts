@@ -188,6 +188,81 @@ describe("useForm", () => {
     });
   });
 
+  it("handles nested fields with dot-notation paths", async () => {
+    type NestedForm = {
+      company: { name: string; address: { city: string } };
+      active: boolean;
+    };
+    let nestedApi: ReturnType<typeof useForm<NestedForm>>;
+
+    function NestedHarness() {
+      nestedApi = useForm<NestedForm>({
+        initialData: { company: { name: "", address: { city: "" } }, active: false },
+      });
+      return null;
+    }
+
+    render(React.createElement(NestedHarness));
+
+    // Field props for a nested string field
+    const nameField = nestedApi!.register("company.name", {
+      required: "Informe a razão social.",
+      minLength: { value: 3, message: "Mínimo 3 caracteres." },
+    });
+    expect(nameField).toHaveProperty("name", "company.name");
+    expect(nameField).toHaveProperty("value", "");
+
+    // Simulate typing
+    await act(async () => {
+      await nameField.onChange({
+        target: { value: "Acme" },
+      } as React.ChangeEvent<HTMLInputElement>);
+    });
+
+    await waitFor(() => {
+      expect(nestedApi.getValues()).toMatchObject({ company: { name: "Acme" } });
+      expect(nestedApi.register("company.name").value).toBe("Acme");
+    });
+
+    // Nested validation — required
+    await act(async () => {
+      nestedApi
+        .register("company.name", { required: "Informe a razão social." })
+        .onBlur({} as React.FocusEvent<HTMLInputElement>);
+    });
+    // value is "Acme" so no error
+    await waitFor(() => {
+      expect(nestedApi.formState.errors["company.name"]).toBeUndefined();
+    });
+
+    // Reset to empty and validate
+    await act(async () => {
+      nestedApi.setValue("company", { name: "", address: { city: "" } });
+    });
+    await act(async () => {
+      await nestedApi.validateForm();
+    });
+
+    await waitFor(() => {
+      expect(nestedApi.formState.errors["company.name"]?.message).toBe("Informe a razão social.");
+    });
+
+    // Deeply nested field (two levels)
+    const cityField = nestedApi!.register("company.address.city");
+    expect(cityField).toHaveProperty("name", "company.address.city");
+    expect(cityField).toHaveProperty("value", "");
+
+    await act(async () => {
+      await cityField.onChange({
+        target: { value: "São Paulo" },
+      } as React.ChangeEvent<HTMLInputElement>);
+    });
+
+    await waitFor(() => {
+      expect(nestedApi.getValues()).toMatchObject({ company: { address: { city: "São Paulo" } } });
+    });
+  });
+
   it("loads persisted data, saves updates, and stores submit errors", async () => {
     localStorage.setItem(
       "customer-form",

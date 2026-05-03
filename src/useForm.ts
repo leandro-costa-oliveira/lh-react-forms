@@ -5,7 +5,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof T, FormError>> & Record<string, FormError>>({});
   const [formData, setFormData] = useState<T>(initialData || ({} as T));
-  const fieldsRef = useRef<RegisterOptionsMap<T>>({});
+  const fieldsRef = useRef<Partial<Record<string, REGISTER_OPTIONS<unknown>>>>({});
   const loadCacheRef = useRef(false);
 
   useEffect(() => {
@@ -76,19 +76,24 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     return formData[field];
   };
 
-  function register<K extends BooleanKeys<T>>(field: K, options?: REGISTER_OPTIONS<T[K]>): RegisteredBooleanFieldProps;
-  function register<K extends NonBooleanKeys<T>>(
-    field: K,
-    options?: REGISTER_OPTIONS<T[K]>,
-  ): RegisteredNonBooleanFieldProps<T[K]>;
-  function register<K extends keyof T>(
-    field: K,
-    options?: REGISTER_OPTIONS<T[K]>,
-  ): RegisteredBooleanFieldProps | RegisteredNonBooleanFieldProps<T[K]> {
-    fieldsRef.current[field] = options || {};
+  function register<P extends BooleanFieldPaths<T>>(
+    field: P,
+    options?: REGISTER_OPTIONS<FieldPathValue<T, P>>,
+  ): RegisteredBooleanFieldProps;
+  function register<P extends NonBooleanFieldPaths<T>>(
+    field: P,
+    options?: REGISTER_OPTIONS<FieldPathValue<T, P>>,
+  ): RegisteredNonBooleanFieldProps<FieldPathValue<T, P>>;
+  function register<P extends FieldPath<T>>(
+    field: P,
+    options?: REGISTER_OPTIONS<FieldPathValue<T, P>>,
+  ): RegisteredBooleanFieldProps | RegisteredNonBooleanFieldProps<FieldPathValue<T, P>> {
+    fieldsRef.current[field] = options ?? {};
+
+    const currentValue = getNestedValue<FieldPathValue<T, P>>(formData, field);
 
     const commonProps = {
-      name: String(field),
+      name: field,
       disabled: isSubmitting,
       required: !!options?.required,
       isInvalid: !!errors[field] as true | false,
@@ -97,15 +102,15 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
       },
     };
 
-    if (typeof formData[field] === "boolean") {
+    if (typeof currentValue === "boolean") {
       return {
         ...commonProps,
-        checked: !!formData[field],
+        checked: currentValue,
         onChange: async (e: React.ChangeEvent<HTMLInputElement>) => {
-          setValue(field, e.target.checked as T[K]);
+          setFormData((prev) => setNestedValue(prev, field, e.target.checked));
           await new Promise((resolve) => setTimeout(resolve, 0));
           if (options?.validateOnChange) {
-            validateField(field, e.target.checked as T[K]);
+            validateField(field, e.target.checked);
           }
         },
       };
@@ -113,14 +118,14 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
 
     return {
       ...commonProps,
-      value: normalizeFieldValue(formData[field]),
-      onChange: async (valueOrEvent: RegisterOnChangeArg<T[K]>) => {
+      value: normalizeFieldValue(currentValue),
+      onChange: async (valueOrEvent: RegisterOnChangeArg<unknown>) => {
         if (isFormControlChangeEvent(valueOrEvent)) {
-          setValue(field, valueOrEvent.target.value as T[K]);
+          setFormData((prev) => setNestedValue(prev, field, valueOrEvent.target.value));
           return;
         }
 
-        setValue(field, valueOrEvent);
+        setFormData((prev) => setNestedValue(prev, field, valueOrEvent));
         await new Promise((resolve) => setTimeout(resolve, 0)); // Aguarda o estado atualizar antes de validar
         if (options?.validateOnChange) {
           validateField(field, valueOrEvent);
@@ -129,9 +134,9 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     };
   }
 
-  const validateField = async <K extends keyof T>(field: K, data?: T[K]): Promise<boolean> => {
+  const validateField = async (field: string, data?: unknown): Promise<boolean> => {
     const rules = fieldsRef.current[field];
-    const value = data ?? formData[field];
+    const value = data !== undefined ? data : getNestedValue(formData, field);
 
     const fail = (msg: string) => {
       setErrors((prevErrors) => ({ ...prevErrors, [field]: new Error(msg) }));
@@ -261,27 +266,46 @@ type FormError = {
 
 type ValidationConstraint<TValue> = TValue | { value: TValue; message?: string };
 
-type REGISTER_OPTIONS<TValue> = {
+// Method syntax (`validate?()`) makes the parameter bivariant, so REGISTER_OPTIONS<SpecificType>
+// is assignable to REGISTER_OPTIONS<unknown> — required for the fieldsRef store and overload compatibility.
+interface REGISTER_OPTIONS<TValue> {
   required?: boolean | string;
   minLength?: ValidationConstraint<number>;
   maxLength?: ValidationConstraint<number>;
   min?: ValidationConstraint<number>;
   max?: ValidationConstraint<number>;
   pattern?: ValidationConstraint<RegExp>;
-  validate?: (value: TValue) => boolean | string | Promise<boolean | string>;
+  validate?(value: TValue): boolean | string | Promise<boolean | string>;
   validateOnChange?: boolean;
-};
+}
 
-type RegisterOptionsMap<T> = Partial<{
-  [K in keyof T]: REGISTER_OPTIONS<T[K]>;
-}>;
+// Generates all dot-notation paths for T (e.g. "company" | "company.name" | "name")
+type FieldPath<T> = {
+  [K in keyof T & string]: NonNullable<T[K]> extends string | number | boolean | Date | File | readonly unknown[]
+    ? K
+    : NonNullable<T[K]> extends object
+      ? K | `${K}.${FieldPath<NonNullable<T[K]>>}`
+      : K;
+}[keyof T & string];
+
+// Resolves the value type at a dot-notation path
+type FieldPathValue<T, TPath extends string> = TPath extends `${infer K}.${infer Rest}`
+  ? K extends keyof T
+    ? FieldPathValue<NonNullable<T[K]>, Rest>
+    : never
+  : TPath extends keyof T
+    ? T[TPath]
+    : never;
+
+type BooleanFieldPaths<T> = {
+  [P in FieldPath<T>]: FieldPathValue<T, P> extends boolean ? P : never;
+}[FieldPath<T>];
+
+type NonBooleanFieldPaths<T> = Exclude<FieldPath<T>, BooleanFieldPaths<T>>;
 
 type FormControlElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 type RegisterOnChangeArg<TValue> = TValue | React.ChangeEvent<FormControlElement>;
 type RegisterValue<TValue> = Exclude<TValue, null | undefined> | "";
-
-type BooleanKeys<T> = { [K in keyof T]: T[K] extends boolean ? K : never }[keyof T];
-type NonBooleanKeys<T> = { [K in keyof T]: T[K] extends boolean ? never : K }[keyof T];
 
 type RegisteredBooleanFieldProps = {
   name: string;
@@ -332,6 +356,30 @@ function normalizePatternConstraint(constraint: ValidationConstraint<RegExp>): {
     return { value: constraint };
   }
   return constraint as { value: RegExp; message?: string };
+}
+
+function getNestedValue<TValue>(obj: unknown, path: string): TValue {
+  if (!path.includes(".")) {
+    return (obj as Record<string, unknown>)?.[path] as TValue;
+  }
+  const dotIndex = path.indexOf(".");
+  const key = path.slice(0, dotIndex);
+  const rest = path.slice(dotIndex + 1);
+  return getNestedValue<TValue>((obj as Record<string, unknown>)?.[key], rest);
+}
+
+function setNestedValue<TObj>(obj: TObj, path: string, value: unknown): TObj {
+  const dotIndex = path.indexOf(".");
+  if (dotIndex === -1) {
+    return { ...(obj as object), [path]: value } as TObj;
+  }
+  const key = path.slice(0, dotIndex);
+  const rest = path.slice(dotIndex + 1);
+  const nested = (obj as Record<string, unknown>)?.[key] ?? {};
+  return {
+    ...(obj as object),
+    [key]: setNestedValue(nested, rest, value),
+  } as TObj;
 }
 
 function normalizeFieldValue<TValue>(value: TValue): RegisterValue<TValue> {
