@@ -275,7 +275,7 @@ type Primitive = string | number | boolean | bigint | symbol | null | undefined 
 type NestedFormErrors<T> = {
   [K in keyof T]?: NonNullable<T[K]> extends Primitive | readonly unknown[]
     ? FormError
-    : FormError | NestedFormErrors<NonNullable<T[K]>>;
+    : { message?: string } & NestedFormErrors<NonNullable<T[K]>>;
 };
 
 type FormErrors<T> = NestedFormErrors<T> & {

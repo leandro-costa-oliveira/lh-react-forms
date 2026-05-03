@@ -1,6 +1,6 @@
 import { act, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { useForm } from "../src/useForm";
 
@@ -275,14 +275,17 @@ describe("useForm", () => {
       active: boolean;
     };
 
-    const {
-      formState: { errors },
-    } = useForm<NestedForm>({});
+    type Errors = ReturnType<typeof useForm<NestedForm>>["formState"]["errors"];
 
-    expect(errors).toHaveProperty("company");
-    expect(errors.company).toHaveProperty("name");
-    expect(errors.company).toHaveProperty("address");
-    expect(errors.company?.address).toHaveProperty("city");
+    expectTypeOf<Errors["company"]>().toMatchTypeOf<
+      | ({ message?: string } & {
+          name?: { message: string };
+          address?: { message?: string; city?: { message: string } };
+        })
+      | undefined
+    >();
+    expectTypeOf<Errors["active"]>().toMatchTypeOf<{ message: string } | undefined>();
+    expectTypeOf<Errors["submitError"]>().toMatchTypeOf<{ message: string } | undefined>();
   });
 
   it("loads persisted data, saves updates, and stores submit errors", async () => {
