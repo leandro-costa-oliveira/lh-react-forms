@@ -76,15 +76,44 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     return formData[field];
   };
 
-  const register = <K extends keyof T>(field: K, options?: REGISTER_OPTIONS<T[K]>) => {
+  function register<K extends BooleanKeys<T>>(field: K, options?: REGISTER_OPTIONS<T[K]>): RegisteredBooleanFieldProps;
+  function register<K extends NonBooleanKeys<T>>(
+    field: K,
+    options?: REGISTER_OPTIONS<T[K]>,
+  ): RegisteredNonBooleanFieldProps<T[K]>;
+  function register<K extends keyof T>(
+    field: K,
+    options?: REGISTER_OPTIONS<T[K]>,
+  ): RegisteredBooleanFieldProps | RegisteredNonBooleanFieldProps<T[K]> {
     fieldsRef.current[field] = options || {};
 
-    return {
+    const commonProps = {
       name: String(field),
-      value: normalizeFieldValue(formData[field]),
       disabled: isSubmitting,
       required: !!options?.required,
-      isInvalid: !!errors[field],
+      isInvalid: !!errors[field] as true | false,
+      onBlur: (_e: React.FocusEvent<FormControlElement | HTMLLabelElement>) => {
+        validateField(field);
+      },
+    };
+
+    if (typeof formData[field] === "boolean") {
+      return {
+        ...commonProps,
+        checked: !!formData[field],
+        onChange: async (e: React.ChangeEvent<HTMLInputElement>) => {
+          setValue(field, e.target.checked as T[K]);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (options?.validateOnChange) {
+            validateField(field, e.target.checked as T[K]);
+          }
+        },
+      };
+    }
+
+    return {
+      ...commonProps,
+      value: normalizeFieldValue(formData[field]),
       onChange: async (valueOrEvent: RegisterOnChangeArg<T[K]>) => {
         if (isFormControlChangeEvent(valueOrEvent)) {
           setValue(field, valueOrEvent.target.value as T[K]);
@@ -97,11 +126,8 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
           validateField(field, valueOrEvent);
         }
       },
-      onBlur: (_e: React.FocusEvent<FormControlElement | HTMLLabelElement>) => {
-        validateField(field);
-      },
-    } satisfies RegisteredFieldProps<T[K]>;
-  };
+    };
+  }
 
   const validateField = async <K extends keyof T>(field: K, data?: T[K]): Promise<boolean> => {
     const rules = fieldsRef.current[field];
@@ -201,15 +227,32 @@ type FormControlElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectEle
 type RegisterOnChangeArg<TValue> = TValue | React.ChangeEvent<FormControlElement>;
 type RegisterValue<TValue> = Exclude<TValue, null | undefined> | "";
 
-type RegisteredFieldProps<TValue> = {
+type BooleanKeys<T> = { [K in keyof T]: T[K] extends boolean ? K : never }[keyof T];
+type NonBooleanKeys<T> = { [K in keyof T]: T[K] extends boolean ? never : K }[keyof T];
+
+type RegisteredBooleanFieldProps = {
+  name: string;
+  checked: boolean;
+  disabled: boolean;
+  required: boolean;
+  isInvalid: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  onBlur: (e: React.FocusEvent<FormControlElement | HTMLLabelElement>) => void;
+};
+
+type RegisteredNonBooleanFieldProps<TValue> = {
   name: string;
   value: RegisterValue<TValue>;
   disabled: boolean;
   required: boolean;
   isInvalid: boolean;
-  onChange: (valueOrEvent: RegisterOnChangeArg<TValue>) => void;
+  onChange: (valueOrEvent: RegisterOnChangeArg<TValue>) => Promise<void>;
   onBlur: (e: React.FocusEvent<FormControlElement | HTMLLabelElement>) => void;
 };
+
+type RegisteredFieldProps<TValue> = TValue extends boolean
+  ? RegisteredBooleanFieldProps
+  : RegisteredNonBooleanFieldProps<TValue>;
 
 const ERROR_MESSAGES = {
   required: "Este campo é obrigatório.",

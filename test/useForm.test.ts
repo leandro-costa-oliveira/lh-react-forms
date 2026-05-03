@@ -160,6 +160,34 @@ describe("useForm", () => {
     });
   });
 
+  it("handles boolean checkbox fields with checked prop and ChangeEvent onChange", async () => {
+    type CheckboxForm = { remember: boolean };
+    let checkboxApi: ReturnType<typeof useForm<CheckboxForm>>;
+
+    function CheckboxHarness() {
+      checkboxApi = useForm<CheckboxForm>({ initialData: { remember: false } });
+      return null;
+    }
+
+    render(React.createElement(CheckboxHarness));
+
+    const field = checkboxApi!.register("remember");
+
+    // Must expose `checked`, not `value`
+    expect(field).toHaveProperty("checked", false);
+    expect(field).not.toHaveProperty("value");
+
+    // Simulate a checkbox change event
+    await act(async () => {
+      await field.onChange({ target: { checked: true } } as React.ChangeEvent<HTMLInputElement>);
+    });
+
+    await waitFor(() => {
+      expect(checkboxApi.getValues("remember")).toBe(true);
+      expect(checkboxApi.register("remember").checked).toBe(true);
+    });
+  });
+
   it("loads persisted data, saves updates, and stores submit errors", async () => {
     localStorage.setItem(
       "customer-form",
