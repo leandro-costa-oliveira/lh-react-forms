@@ -1,6 +1,6 @@
 {
   "name": "lh-react-forms",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "description": "",
   "main": "src/useForm.js",
   "types": "src/useForm.d.ts",

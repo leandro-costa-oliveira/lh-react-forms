@@ -129,10 +129,10 @@ describe("useForm", () => {
     const event = {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
-    } as unknown as React.FormEvent<HTMLFormElement>;
+    } as unknown as React.SubmitEvent;
 
     await act(async () => {
-      await formApi.handleSubmit(onSubmit)(event as React.SubmitEvent);
+      await formApi.handleSubmit(onSubmit)(event);
     });
 
     expect(event.preventDefault).toHaveBeenCalled();
@@ -148,7 +148,7 @@ describe("useForm", () => {
     });
 
     await act(async () => {
-      await formApi.handleSubmit(onSubmit)(event as React.SubmitEvent);
+      await formApi.handleSubmit(onSubmit)(event);
     });
 
     await waitFor(() => {
