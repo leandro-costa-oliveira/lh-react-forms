@@ -1,6 +1,6 @@
 {
   "name": "lh-react-forms",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "",
   "main": "src/useForm.js",
   "types": "src/useForm.d.ts",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "ssh://git@git.lhprovedor.com.br/leandro/lh-react-forms.git"
+    "url": "git@github.com:leandro-costa-oliveira/lh-react-forms.git"
   },
   "keywords": [],
   "author": "",
