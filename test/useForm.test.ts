@@ -1,6 +1,6 @@
 import { act, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { useForm } from "../src/useForm";
 
@@ -232,7 +232,10 @@ describe("useForm", () => {
     });
     // value is "Acme" so no error
     await waitFor(() => {
-      expect(nestedApi.formState.errors["company.name"]).toBeUndefined();
+      if (nestedApi.formState.errors.company && "message" in nestedApi.formState.errors.company) {
+        throw new Error("Unexpected object-level company error.");
+      }
+      expect(nestedApi.formState.errors.company?.name).toBeUndefined();
     });
 
     // Reset to empty and validate
@@ -244,7 +247,10 @@ describe("useForm", () => {
     });
 
     await waitFor(() => {
-      expect(nestedApi.formState.errors["company.name"]?.message).toBe("Informe a razão social.");
+      if (nestedApi.formState.errors.company && "message" in nestedApi.formState.errors.company) {
+        throw new Error("Unexpected object-level company error.");
+      }
+      expect(nestedApi.formState.errors.company?.name?.message).toBe("Informe a razão social.");
     });
 
     // Deeply nested field (two levels)
@@ -261,6 +267,23 @@ describe("useForm", () => {
     await waitFor(() => {
       expect(nestedApi.getValues()).toMatchObject({ company: { address: { city: "São Paulo" } } });
     });
+  });
+
+  it("types nested errors in formState", () => {
+    type NestedForm = {
+      company: { name: string; address: { city: string } };
+      active: boolean;
+    };
+
+    type Errors = ReturnType<typeof useForm<NestedForm>>["formState"]["errors"];
+    type CompanyError = Errors["company"];
+
+    expectTypeOf<NonNullable<CompanyError>>().toMatchTypeOf<
+      { message: string } | { name?: { message: string }; address?: { city?: { message: string } } }
+    >();
+    expectTypeOf<Extract<CompanyError, undefined>>().toMatchTypeOf<undefined>();
+    expectTypeOf<Errors["active"]>().toMatchTypeOf<{ message: string } | undefined>();
+    expectTypeOf<Errors["submitError"]>().toMatchTypeOf<{ message: string } | undefined>();
   });
 
   it("loads persisted data, saves updates, and stores submit errors", async () => {

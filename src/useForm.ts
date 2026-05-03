@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export function useForm<T>(options: { initialData?: T; persistName?: string } = {}) {
   const { initialData, persistName } = options;
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof T, FormError>> & Record<string, FormError>>({});
+  const [errors, setErrors] = useState<FormErrors<T>>({});
   const [formData, setFormData] = useState<T>(initialData || ({} as T));
   const fieldsRef = useRef<Partial<Record<string, REGISTER_OPTIONS<unknown>>>>({});
   const loadCacheRef = useRef(false);
@@ -56,21 +56,27 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
 
   const setError = (field: keyof T | string, error: FormError | string) => {
     setErrors((prev) => {
-      return { ...prev, [field]: typeof error === "string" ? { message: error } : error };
+      return setNestedValue(
+        prev,
+        String(field),
+        typeof error === "string" ? { message: error } : error,
+      ) as FormErrors<T>;
     });
   };
 
   const clearError = useCallback((field: keyof T | string) => {
     setErrors((prevErrors) => {
-      const newErrors = { ...prevErrors };
-      if (field === "root") {
-        delete newErrors.root;
-      } else {
-        delete newErrors[field];
-      }
-      return newErrors;
+      return unsetNestedValue(prevErrors, String(field)) as FormErrors<T>;
     });
   }, []);
+
+  const getFieldError = useCallback(
+    (field: string): FormError | undefined => {
+      const maybeError = getNestedValue<unknown>(errors, field);
+      return isFormError(maybeError) ? maybeError : undefined;
+    },
+    [errors],
+  );
 
   const watch = <K extends keyof T>(field: K) => {
     return formData[field];
@@ -96,7 +102,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
       name: field,
       disabled: isSubmitting,
       required: !!options?.required,
-      isInvalid: !!errors[field] as true | false,
+      isInvalid: !!getFieldError(field) as true | false,
       onBlur: (_e: React.FocusEvent<FormControlElement | HTMLLabelElement>) => {
         validateField(field);
       },
@@ -139,7 +145,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     const value = data !== undefined ? data : getNestedValue(formData, field);
 
     const fail = (msg: string) => {
-      setErrors((prevErrors) => ({ ...prevErrors, [field]: new Error(msg) }));
+      setErrors((prevErrors) => setNestedValue(prevErrors, field, { message: msg }) as FormErrors<T>);
     };
 
     if (rules?.required && !value && value !== 0 && value !== false) {
@@ -264,6 +270,19 @@ type FormError = {
   message: string;
 };
 
+type Primitive = string | number | boolean | bigint | symbol | null | undefined | Date | File;
+
+type NestedFormErrors<T> = {
+  [K in keyof T]?: NonNullable<T[K]> extends Primitive | readonly unknown[]
+    ? FormError
+    : FormError | NestedFormErrors<NonNullable<T[K]>>;
+};
+
+type FormErrors<T> = NestedFormErrors<T> & {
+  root?: FormError;
+  submitError?: FormError;
+};
+
 type ValidationConstraint<TValue> = TValue | { value: TValue; message?: string };
 
 // Method syntax (`validate?()`) makes the parameter bivariant, so REGISTER_OPTIONS<SpecificType>
@@ -382,6 +401,40 @@ function setNestedValue<TObj>(obj: TObj, path: string, value: unknown): TObj {
   } as TObj;
 }
 
+function unsetNestedValue<TObj>(obj: TObj, path: string): TObj {
+  const dotIndex = path.indexOf(".");
+
+  if (dotIndex === -1) {
+    if (obj === null || typeof obj !== "object") {
+      return obj;
+    }
+
+    const clone = { ...(obj as Record<string, unknown>) };
+    delete clone[path];
+    return clone as TObj;
+  }
+
+  const key = path.slice(0, dotIndex);
+  const rest = path.slice(dotIndex + 1);
+  const source = obj as Record<string, unknown>;
+  const current = source?.[key];
+
+  if (current === null || typeof current !== "object") {
+    return obj;
+  }
+
+  const next = unsetNestedValue(current, rest) as unknown;
+  const clone = { ...source };
+
+  if (isEmptyObject(next)) {
+    delete clone[key];
+  } else {
+    clone[key] = next;
+  }
+
+  return clone as TObj;
+}
+
 function normalizeFieldValue<TValue>(value: TValue): RegisterValue<TValue> {
   return (value ?? "") as RegisterValue<TValue>;
 }
@@ -392,6 +445,14 @@ function isFormControlChangeEvent(value: unknown): value is React.ChangeEvent<Fo
 
 function isAxiosError(error: unknown): error is { response?: { data?: any } } {
   return typeof error === "object" && error !== null && "response" in error;
+}
+
+function isFormError(value: unknown): value is FormError {
+  return typeof value === "object" && value !== null && "message" in value;
+}
+
+function isEmptyObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && Object.keys(value).length === 0;
 }
 
 function parseError(error: unknown): FormError {
