@@ -26,6 +26,10 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
         persistName,
         error,
       });
+      setErrors((prevErrors) => ({
+        ...prevErrors,
+        root: { message: `Failed to load saved form data. ${error}` },
+      }));
     }
   }, [persistName]);
 
@@ -41,6 +45,10 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
         formData,
         error,
       });
+      setErrors((prevErrors) => ({
+        ...prevErrors,
+        root: { message: `Failed to save form data. ${error}` },
+      }));
     }
   }, [formData, persistName]);
 
