@@ -10,7 +10,7 @@ Ao invés de depender de inputs não-controlados e refs no DOM, `lh-react-forms`
 - Campos controlados (`value` + `onChange`) por padrão.
 - Validação por campo (`required`, `validate`, `validateOnChange`).
 - Estado do formulário (`isSubmitting`, `errors`).
-- Persistência automática em `localStorage` via `persistName`.
+- Persistência automática em IndexedDB via `persistName`, com fallback para `localStorage`.
 
 ## Instalação
 
@@ -27,6 +27,17 @@ npm install -D @types/react
 ## Uso básico
 
 Veja o `README.md` principal para exemplos simples. Abaixo há um exemplo complexo com campos do tipo array.
+
+## Persistência automática
+
+Passe `persistName` para salvar e restaurar automaticamente os dados do formulário.
+
+Comportamento:
+
+- Ao montar, o hook tenta carregar o rascunho salvo no IndexedDB.
+- Sempre que `formData` muda, o rascunho é salvo novamente no IndexedDB.
+- Se o IndexedDB falhar ou não estiver disponível, o hook usa `localStorage` como fallback e preenche `formState.errors.root` com um aviso.
+- Rascunhos antigos existentes apenas no `localStorage` não são migrados automaticamente enquanto o IndexedDB estiver funcionando.
 
 ## Exemplo complexo — AnexosInput
 
@@ -170,6 +181,11 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 ```
+
+## Observações
+
+- Os rascunhos persistidos são gerenciados internamente pelo hook.
+- Em um submit bem-sucedido, o rascunho só é removido quando `onSubmit` retorna um valor truthy.
 
 ### Exemplo de uso
 

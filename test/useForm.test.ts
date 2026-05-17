@@ -4,6 +4,9 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { useForm } from "../src/useForm";
 
+const INDEXED_DB_NAME = "lh-react-forms";
+const INDEXED_DB_STORE = "forms";
+
 type TestForm = {
   name: string;
   age: number;
@@ -19,6 +22,64 @@ function TestHarness({ initialData, persistName }: { initialData?: TestForm; per
 
 function renderForm(options?: { initialData?: TestForm; persistName?: string }) {
   return render(React.createElement(TestHarness, options));
+}
+
+function openPersistDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(INDEXED_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(INDEXED_DB_STORE)) {
+        db.createObjectStore(INDEXED_DB_STORE);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB test database."));
+  });
+}
+
+async function readPersistedValue<T>(key: string): Promise<T | undefined> {
+  const db = await openPersistDatabase();
+
+  return new Promise<T | undefined>((resolve, reject) => {
+    const transaction = db.transaction(INDEXED_DB_STORE, "readonly");
+    const request = transaction.objectStore(INDEXED_DB_STORE).get(key);
+
+    request.onsuccess = () => resolve(request.result as T | undefined);
+    request.onerror = () => reject(request.error ?? new Error("Failed to read IndexedDB test value."));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB test transaction failed."));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB test transaction aborted."));
+    };
+  });
+}
+
+async function writePersistedValue(key: string, value: unknown): Promise<void> {
+  const db = await openPersistDatabase();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(INDEXED_DB_STORE, "readwrite");
+    const request = transaction.objectStore(INDEXED_DB_STORE).put(value, key);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("Failed to write IndexedDB test value."));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB test transaction failed."));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB test transaction aborted."));
+    };
+  });
 }
 
 describe("useForm", () => {
@@ -288,13 +349,19 @@ describe("useForm", () => {
     expectTypeOf<Errors["submitError"]>().toMatchTypeOf<{ message: string } | undefined>();
   });
 
-  it("loads persisted data, saves updates, and stores submit errors", async () => {
+  it("loads persisted data from IndexedDB, saves updates, ignores legacy localStorage, and stores submit errors", async () => {
+    await writePersistedValue("customer-form", {
+      name: "Cache",
+      age: 18,
+      anexos: ["doc.pdf"],
+    });
+
     localStorage.setItem(
       "customer-form",
       JSON.stringify({
-        name: "Cache",
-        age: 18,
-        anexos: ["doc.pdf"],
+        name: "Legacy",
+        age: 99,
+        anexos: ["legacy.pdf"],
       }),
     );
 
@@ -319,12 +386,18 @@ describe("useForm", () => {
       await formApi.register("name").onChange("Atualizado");
     });
 
-    await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem("customer-form") || "null")).toEqual({
+    await waitFor(async () => {
+      expect(await readPersistedValue<TestForm>("customer-form")).toEqual({
         name: "Atualizado",
         age: 18,
         anexos: ["doc.pdf"],
       });
+    });
+
+    expect(JSON.parse(localStorage.getItem("customer-form") || "null")).toEqual({
+      name: "Legacy",
+      age: 99,
+      anexos: ["legacy.pdf"],
     });
 
     formApi.register("name");
@@ -337,6 +410,87 @@ describe("useForm", () => {
 
     await waitFor(() => {
       expect(formApi.formState.errors.submitError?.message).toBe("Falha ao enviar");
+    });
+  });
+
+  it("falls back to localStorage and warns through root errors when IndexedDB is unavailable", async () => {
+    localStorage.setItem(
+      "fallback-form",
+      JSON.stringify({
+        name: "Fallback",
+        age: 21,
+        anexos: ["fallback.pdf"],
+      }),
+    );
+
+    vi.stubGlobal("indexedDB", undefined);
+    Object.defineProperty(window, "indexedDB", {
+      configurable: true,
+      value: undefined,
+    });
+
+    renderForm({
+      initialData: {
+        name: "",
+        age: 0,
+        anexos: "",
+      },
+      persistName: "fallback-form",
+    });
+
+    await waitFor(() => {
+      expect(formApi.getValues()).toEqual({
+        name: "Fallback",
+        age: 21,
+        anexos: ["fallback.pdf"],
+      });
+    });
+
+    await waitFor(() => {
+      expect(formApi.formState.errors.root?.message).toContain("Usando localStorage como fallback");
+    });
+
+    await act(async () => {
+      await formApi.register("name").onChange("Fallback atualizado");
+    });
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem("fallback-form") || "null")).toEqual({
+        name: "Fallback atualizado",
+        age: 21,
+        anexos: ["fallback.pdf"],
+      });
+    });
+  });
+
+  it("removes persisted data after a successful submit with a truthy return", async () => {
+    renderForm({
+      initialData: {
+        name: "",
+        age: 0,
+        anexos: "",
+      },
+      persistName: "submit-form",
+    });
+
+    await act(async () => {
+      await formApi.register("name").onChange("Leandro");
+    });
+
+    await waitFor(async () => {
+      expect(await readPersistedValue<TestForm>("submit-form")).toEqual({
+        name: "Leandro",
+        age: 0,
+        anexos: "",
+      });
+    });
+
+    await act(async () => {
+      await formApi.handleSubmit(async () => true as never)();
+    });
+
+    await waitFor(async () => {
+      expect(await readPersistedValue<TestForm>("submit-form")).toBeUndefined();
     });
   });
 

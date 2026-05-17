@@ -5,62 +5,105 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors<T>>({});
   const [formData, setFormData] = useState<T>(initialData || ({} as T));
+  const [isPersistenceReady, setIsPersistenceReady] = useState(!persistName);
   const fieldsRef = useRef<Partial<Record<string, REGISTER_OPTIONS<unknown>>>>({});
-  const loadCacheRef = useRef(false);
+  const storageRef = useRef<PersistStorage | null>(null);
+  const userEditedBeforeHydrationRef = useRef(false);
+
+  const setRootMessage = useCallback((message: string) => {
+    setErrors((prevErrors) => ({
+      ...prevErrors,
+      root: { message },
+    }));
+  }, []);
+
+  const markUserEditBeforeHydration = useCallback(() => {
+    if (persistName && !isPersistenceReady) {
+      userEditedBeforeHydrationRef.current = true;
+    }
+  }, [isPersistenceReady, persistName]);
 
   useEffect(() => {
-    if (!persistName || loadCacheRef.current) {
-      loadCacheRef.current = true;
+    userEditedBeforeHydrationRef.current = false;
+
+    if (!persistName) {
+      storageRef.current = null;
+      setIsPersistenceReady(true);
       return;
     }
 
-    try {
-      const cachedData = localStorage.getItem(persistName);
-      const jsonData = cachedData ? JSON.parse(cachedData) : null;
-      if (jsonData) setFormData(jsonData as T);
+    setIsPersistenceReady(false);
+    const storage = createPersistStorage(persistName, {
+      onFallback: setRootMessage,
+    });
+    storageRef.current = storage;
 
-      // console.log("Loaded form data from localStorage:", persistName, jsonData);
-      loadCacheRef.current = true;
-    } catch (error) {
-      console.error("Failed to load form data from localStorage:", {
-        persistName,
-        error,
-      });
-      setErrors((prevErrors) => ({
-        ...prevErrors,
-        root: { message: `Failed to load saved form data. ${error}` },
-      }));
-    }
-  }, [persistName]);
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const cachedData = await storage.load<T>();
+        if (!cancelled && !userEditedBeforeHydrationRef.current && cachedData) {
+          setFormData(cachedData);
+        }
+      } catch (error) {
+        console.error("Failed to load form data from persistent storage:", {
+          persistName,
+          error,
+        });
+        if (!cancelled) {
+          setRootMessage(`Failed to load saved form data. ${error}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPersistenceReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [persistName, setRootMessage]);
 
   useEffect(() => {
-    if (!persistName || !loadCacheRef.current) return;
+    if (!persistName || !isPersistenceReady || !storageRef.current) return;
 
-    try {
-      // console.log("Saving form data to localStorage:", persistName, formData);
-      localStorage.setItem(persistName, JSON.stringify(formData));
-    } catch (error) {
-      console.error("Failed to save form data to localStorage:", {
-        persistName,
-        formData,
-        error,
-      });
-      setErrors((prevErrors) => ({
-        ...prevErrors,
-        root: { message: `Failed to save form data. ${error}` },
-      }));
-    }
-  }, [formData, persistName]);
+    let cancelled = false;
 
-  const setValue = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
-    setFormData((prev) => {
-      if (Object.is(prev[field], value)) {
-        return prev;
+    void (async () => {
+      try {
+        await storageRef.current?.save(formData);
+      } catch (error) {
+        console.error("Failed to save form data to persistent storage:", {
+          persistName,
+          formData,
+          error,
+        });
+        if (!cancelled) {
+          setRootMessage(`Failed to save form data. ${error}`);
+        }
       }
+    })();
 
-      return { ...prev, [field]: value };
-    });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [formData, isPersistenceReady, persistName, setRootMessage]);
+
+  const setValue = useCallback(
+    <K extends keyof T>(field: K, value: T[K]) => {
+      markUserEditBeforeHydration();
+      setFormData((prev) => {
+        if (Object.is(prev[field], value)) {
+          return prev;
+        }
+
+        return { ...prev, [field]: value };
+      });
+    },
+    [markUserEditBeforeHydration],
+  );
 
   const setError = (field: keyof T | string, error: FormError | string) => {
     setErrors((prev) => {
@@ -121,6 +164,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
         ...commonProps,
         checked: currentValue,
         onChange: async (e: React.ChangeEvent<HTMLInputElement>) => {
+          markUserEditBeforeHydration();
           setFormData((prev) => setNestedValue(prev, field, e.target.checked));
           await new Promise((resolve) => setTimeout(resolve, 0));
           if (options?.validateOnChange) {
@@ -134,6 +178,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
       ...commonProps,
       value: normalizeFieldValue(currentValue),
       onChange: async (valueOrEvent: RegisterOnChangeArg<unknown>) => {
+        markUserEditBeforeHydration();
         if (isFormControlChangeEvent(valueOrEvent)) {
           setFormData((prev) => setNestedValue(prev, field, valueOrEvent.target.value));
           return;
@@ -238,7 +283,9 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
       setIsSubmitting(true);
       const ret = await onSubmit(formData);
 
-      if (persistName && ret) localStorage.removeItem(persistName);
+      if (persistName && ret) {
+        await storageRef.current?.remove();
+      }
     } catch (error) {
       console.error("Form submission error:", error);
       setErrors((prevErrors) => ({
@@ -358,6 +405,21 @@ type RegisteredFieldProps<TValue> = TValue extends boolean
   ? RegisteredBooleanFieldProps
   : RegisteredNonBooleanFieldProps<TValue>;
 
+type PersistStorage = {
+  load<T>(): Promise<T | null>;
+  save(value: unknown): Promise<void>;
+  remove(): Promise<void>;
+};
+
+type PersistBackend = "indexedDB" | "localStorage";
+
+type PersistStorageOptions = {
+  onFallback?: (message: string) => void;
+};
+
+const INDEXED_DB_NAME = "lh-react-forms";
+const INDEXED_DB_STORE = "forms";
+
 const ERROR_MESSAGES = {
   required: "Este campo é obrigatório.",
   minLength: (min: number) => `Mínimo de ${min} caracteres.`,
@@ -469,4 +531,205 @@ function parseError(error: unknown): FormError {
     : error instanceof Error
       ? { message: error.message }
       : { message: `Erro Desconhecido ${String(error)}` };
+}
+
+function createPersistStorage(key: string, options: PersistStorageOptions = {}): PersistStorage {
+  let activeBackend: PersistBackend | null = null;
+  let backendPromise: Promise<PersistBackend> | null = null;
+  let warnedFallback = false;
+  let writeQueue = Promise.resolve();
+
+  const warnFallback = (reason: unknown) => {
+    if (warnedFallback) {
+      return;
+    }
+
+    warnedFallback = true;
+    options.onFallback?.(
+      `IndexedDB indisponível para "${key}". Usando localStorage como fallback. ${stringifyError(reason)}`,
+    );
+  };
+
+  const getBackend = async (): Promise<PersistBackend> => {
+    if (activeBackend) {
+      return activeBackend;
+    }
+
+    if (backendPromise) {
+      return backendPromise;
+    }
+
+    backendPromise = (async () => {
+      if (hasIndexedDb()) {
+        try {
+          const db = await openPersistDatabase();
+          db.close();
+          activeBackend = "indexedDB";
+          return activeBackend;
+        } catch (error) {
+          if (hasLocalStorage()) {
+            activeBackend = "localStorage";
+            warnFallback(error);
+            return activeBackend;
+          }
+
+          throw error;
+        }
+      }
+
+      if (hasLocalStorage()) {
+        activeBackend = "localStorage";
+        warnFallback(new Error("IndexedDB não está disponível neste ambiente."));
+        return activeBackend;
+      }
+
+      throw new Error("Nenhum mecanismo de persistência está disponível neste ambiente.");
+    })();
+
+    try {
+      return await backendPromise;
+    } finally {
+      if (!activeBackend) {
+        backendPromise = null;
+      }
+    }
+  };
+
+  const withFallback = async <T>(operation: (backend: PersistBackend) => Promise<T>): Promise<T> => {
+    const backend = await getBackend();
+
+    if (backend === "localStorage") {
+      return operation(backend);
+    }
+
+    try {
+      return await operation(backend);
+    } catch (error) {
+      if (!hasLocalStorage()) {
+        throw error;
+      }
+
+      activeBackend = "localStorage";
+      backendPromise = Promise.resolve(activeBackend);
+      warnFallback(error);
+      return operation(activeBackend);
+    }
+  };
+
+  return {
+    load: <T>() =>
+      withFallback(async (backend) => {
+        if (backend === "indexedDB") {
+          return (await indexedDbGet<T>(key)) ?? null;
+        }
+
+        return localStorageGet<T>(key);
+      }),
+    save: (value: unknown) => {
+      writeQueue = writeQueue.then(() =>
+        withFallback(async (backend) => {
+          if (backend === "indexedDB") {
+            await indexedDbSet(key, value);
+            return;
+          }
+
+          localStorageSet(key, value);
+        }),
+      );
+
+      return writeQueue;
+    },
+    remove: () => {
+      writeQueue = writeQueue.then(() =>
+        withFallback(async (backend) => {
+          if (backend === "indexedDB") {
+            await indexedDbRemove(key);
+            return;
+          }
+
+          localStorageRemove(key);
+        }),
+      );
+
+      return writeQueue;
+    },
+  };
+}
+
+function hasIndexedDb(): boolean {
+  return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
+}
+
+function hasLocalStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+async function openPersistDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(INDEXED_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(INDEXED_DB_STORE)) {
+        db.createObjectStore(INDEXED_DB_STORE);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Falha ao abrir IndexedDB."));
+  });
+}
+
+async function withObjectStore<T>(
+  mode: IDBTransactionMode,
+  handler: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  const db = await openPersistDatabase();
+
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction(INDEXED_DB_STORE, mode);
+    const store = transaction.objectStore(INDEXED_DB_STORE);
+    const request = handler(store);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Falha na operação do IndexedDB."));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? request.error ?? new Error("Falha na transação do IndexedDB."));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error("Transação do IndexedDB abortada."));
+    };
+  });
+}
+
+function indexedDbGet<T>(key: string): Promise<T | undefined> {
+  return withObjectStore("readonly", (store) => store.get(key));
+}
+
+async function indexedDbSet(key: string, value: unknown): Promise<void> {
+  await withObjectStore("readwrite", (store) => store.put(value, key));
+}
+
+async function indexedDbRemove(key: string): Promise<void> {
+  await withObjectStore("readwrite", (store) => store.delete(key));
+}
+
+function localStorageGet<T>(key: string): T | null {
+  const cachedData = window.localStorage.getItem(key);
+  return cachedData ? (JSON.parse(cachedData) as T) : null;
+}
+
+function localStorageSet(key: string, value: unknown): void {
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function localStorageRemove(key: string): void {
+  window.localStorage.removeItem(key);
+}
+
+function stringifyError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -84,7 +84,7 @@ export function LoginPage() {
 }
 ```
 
-## Automatic persistence with localStorage
+## Automatic persistence with IndexedDB
 
 Pass `persistName` to automatically save and restore form data:
 
@@ -97,8 +97,10 @@ const form = useForm<{ name: string; phone: string }>({
 
 Behavior:
 
-- On mount the hook tries to load `localStorage.getItem("customer-signup")` and restore it into the form state.
-- Every time `formData` changes, it is saved to `localStorage`.
+- On mount the hook tries to load the draft from IndexedDB and restore it into the form state.
+- Every time `formData` changes, it is saved back to IndexedDB.
+- If IndexedDB is unavailable or fails, the hook falls back to `localStorage` and exposes a warning in `formState.errors.root`.
+- Existing drafts already stored only in `localStorage` are not automatically imported while IndexedDB is working.
 
 ## Example with a custom controlled component
 
@@ -380,7 +382,7 @@ type RegisterOptions<TValue> = {
 
 - `required` currently uses the default message: `Este campo é obrigatório.` (Portuguese). You may override validation messages via `validate` or by calling `setError`.
 - Submission errors appear under `formState.errors.submitError`.
-- To manually clear persisted data call `localStorage.removeItem(persistName)`.
+- Persisted drafts are managed internally. On successful submit, the draft is cleared only when `onSubmit` returns a truthy value.
 
 ## License
 
