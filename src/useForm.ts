@@ -11,7 +11,6 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
   const [isPersistenceReady, setIsPersistenceReady] = useState(!persistName);
   const fieldsRef = useRef<Partial<Record<string, REGISTER_OPTIONS<unknown>>>>({});
   const storageRef = useRef<PersistStorage | null>(null);
-  const userEditedBeforeHydrationRef = useRef(false);
 
   const setRootMessage = useCallback((message: string) => {
     setErrors((prevErrors) => ({
@@ -20,15 +19,7 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     }));
   }, []);
 
-  const markUserEditBeforeHydration = useCallback(() => {
-    if (persistName && !isPersistenceReady) {
-      userEditedBeforeHydrationRef.current = true;
-    }
-  }, [isPersistenceReady, persistName]);
-
   useEffect(() => {
-    userEditedBeforeHydrationRef.current = false;
-
     if (!persistName) {
       storageRef.current = null;
       setIsPersistenceReady(true);
@@ -41,12 +32,10 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
     });
     storageRef.current = storage;
 
-    let cancelled = false;
-
     void (async () => {
       try {
         const cachedData = await storage.load<T>();
-        if (!cancelled && !userEditedBeforeHydrationRef.current && cachedData) {
+        if (storageRef.current === storage && cachedData) {
           setFormData(cachedData);
         }
       } catch (error) {
@@ -54,59 +43,47 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
           persistName,
           error,
         });
-        if (!cancelled) {
+        if (storageRef.current === storage) {
           setRootMessage(`Failed to load saved form data. ${error}`);
         }
       } finally {
-        if (!cancelled) {
+        if (storageRef.current === storage) {
           setIsPersistenceReady(true);
         }
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [persistName, setRootMessage]);
 
   useEffect(() => {
     if (!persistName || !isPersistenceReady || !storageRef.current) return;
 
-    let cancelled = false;
+    const storage = storageRef.current;
 
     void (async () => {
       try {
-        await storageRef.current?.save(formData);
+        await storage.save(formData);
       } catch (error) {
         console.error("Failed to save form data to persistent storage:", {
           persistName,
           formData,
           error,
         });
-        if (!cancelled) {
+        if (storageRef.current === storage) {
           setRootMessage(`Failed to save form data. ${error}`);
         }
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [formData, isPersistenceReady, persistName, setRootMessage]);
 
-  const setValue = useCallback(
-    <K extends keyof T>(field: K, value: T[K]) => {
-      markUserEditBeforeHydration();
-      setFormData((prev) => {
-        if (Object.is(prev[field], value)) {
-          return prev;
-        }
+  const setValue = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
+    setFormData((prev) => {
+      if (Object.is(prev[field], value)) {
+        return prev;
+      }
 
-        return { ...prev, [field]: value };
-      });
-    },
-    [markUserEditBeforeHydration],
-  );
+      return { ...prev, [field]: value };
+    });
+  }, []);
 
   const setError = (field: keyof T | string, error: FormError | string) => {
     setErrors((prev) => {
@@ -167,7 +144,6 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
         ...commonProps,
         checked: currentValue,
         onChange: async (e: React.ChangeEvent<HTMLInputElement>) => {
-          markUserEditBeforeHydration();
           setFormData((prev) => setNestedValue(prev, field, e.target.checked));
           await new Promise((resolve) => setTimeout(resolve, 0));
           if (options?.validateOnChange) {
@@ -181,7 +157,6 @@ export function useForm<T>(options: { initialData?: T; persistName?: string } = 
       ...commonProps,
       value: normalizeFieldValue(currentValue),
       onChange: async (valueOrEvent: RegisterOnChangeArg<unknown>) => {
-        markUserEditBeforeHydration();
         if (isFormControlChangeEvent(valueOrEvent)) {
           setFormData((prev) => setNestedValue(prev, field, valueOrEvent.target.value));
           return;
